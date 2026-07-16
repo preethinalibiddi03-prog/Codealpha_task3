@@ -1,0 +1,177 @@
+from flask import Flask, request, render_template_string, redirect, session
+import sqlite3
+import hashlib
+import secrets
+
+app = Flask(__name__)
+app.secret_key = "codealpha_secret_key"
+
+# ---------------- DATABASE ---------------- #
+
+def init_db():
+    conn = sqlite3.connect("security.db")
+    cur = conn.cursor()
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS users(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE,
+        password TEXT,
+        secret_data TEXT
+    )
+    """)
+
+    conn.commit()
+    conn.close()
+
+init_db()
+
+# ---------------- ENCRYPTION ---------------- #
+
+def encrypt_data(data):
+    return hashlib.sha256(data.encode()).hexdigest()
+
+# ---------------- CAPABILITY TOKEN ---------------- #
+
+CAPABILITY_CODE = secrets.token_hex(16)
+
+# ---------------- HOME ---------------- #
+
+@app.route("/")
+def home():
+    return """
+    <h2>CodeAlpha - Detecting Data Leaks Using SQL Injection</h2>
+
+    <a href='/register'>Register</a><br><br>
+
+    <a href='/login'>Login</a>
+    """
+
+# ---------------- REGISTER ---------------- #
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+
+    if request.method == "POST":
+
+        username = request.form["username"]
+
+        password = encrypt_data(request.form["password"])
+
+        secret = encrypt_data(request.form["secret"])
+
+        conn = sqlite3.connect("security.db")
+        cur = conn.cursor()
+
+        try:
+            cur.execute(
+                "INSERT INTO users(username,password,secret_data) VALUES(?,?,?)",
+                (username, password, secret)
+            )
+            conn.commit()
+
+        except:
+            return "User already exists."
+
+        conn.close()
+
+        return redirect("/login")
+
+    return """
+    <h2>Register</h2>
+
+    <form method="post">
+
+    Username:<br>
+    <input name="username"><br><br>
+
+    Password:<br>
+    <input type="password" name="password"><br><br>
+
+    Sensitive Data:<br>
+    <input name="secret"><br><br>
+
+    <button>Register</button>
+
+    </form>
+    """
+
+# ---------------- LOGIN ---------------- #
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+
+    if request.method == "POST":
+
+        username = request.form["username"]
+
+        password = encrypt_data(request.form["password"])
+
+        conn = sqlite3.connect("security.db")
+        cur = conn.cursor()
+
+        # SQL Injection Prevention
+        cur.execute(
+            "SELECT * FROM users WHERE username=? AND password=?",
+            (username, password)
+        )
+
+        user = cur.fetchone()
+
+        conn.close()
+
+        if user:
+            session["user"] = username
+            return redirect("/dashboard")
+
+        return "Invalid Credentials"
+
+    return """
+    <h2>Login</h2>
+
+    <form method="post">
+
+    Username:<br>
+    <input name="username"><br><br>
+
+    Password:<br>
+    <input type="password" name="password"><br><br>
+
+    <button>Login</button>
+
+    </form>
+    """
+
+# ---------------- DASHBOARD ---------------- #
+
+@app.route("/dashboard")
+def dashboard():
+
+    if "user" not in session:
+        return redirect("/login")
+
+    return f"""
+    <h2>Welcome {session['user']}</h2>
+
+    <h3>Double Layer Security Enabled</h3>
+
+    Capability Code:<br>
+
+    <b>{CAPABILITY_CODE}</b>
+
+    <br><br>
+
+    <a href="/logout">Logout</a>
+    """
+
+# ---------------- LOGOUT ---------------- #
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/")
+
+# ---------------- MAIN ---------------- #
+
+if __name__ == "__main__":
+    app.run(debug=True)
